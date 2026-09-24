@@ -1,0 +1,5 @@
+---
+- hosts: squid_nodes
+  become: yes
+  roles:
+    - squid_ha

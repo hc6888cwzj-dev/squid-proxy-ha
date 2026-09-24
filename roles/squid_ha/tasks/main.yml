@@ -1,0 +1,161 @@
+---
+- name: Установка Squid, Kerberos и Keepalived
+  apt:
+    name:
+      - squid-openssl
+      - krb5-user
+      - keepalived
+    state: present
+    update_cache: yes
+
+- name: Copy Kazakhstan STS Root Certificate
+  ansible.builtin.copy:
+    src: sts.crt
+    dest: /usr/local/share/ca-certificates/sts.crt
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Update CA certificates
+
+- name: Разрешить привязку к non-local IP для VIP
+  sysctl:
+    name: net.ipv4.ip_nonlocal_bind
+    value: '1'
+    state: present
+    reload: yes
+
+- name: Create systemd override directory for Squid
+  ansible.builtin.file:
+    path: /etc/systemd/system/squid.service.d
+    state: directory
+    mode: '0755'
+
+- name: Increase systemd timeout for massive ACLs
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/squid.service.d/override.conf
+    content: |
+      [Service]
+      TimeoutStartSec=600
+      TimeoutStopSec=600
+    mode: '0644'
+  notify: Reload systemd
+
+- name: Настройка Keepalived
+  template:
+    src: keepalived.conf.j2
+    dest: /etc/keepalived/keepalived.conf
+  notify: restart keepalived
+
+- name: Настройка Kerberos (krb5.conf)
+  template:
+    src: krb5.conf.j2
+    dest: /etc/krb5.conf
+
+- name: Копирование Keytab и сертификатов
+  copy:
+    src: "{{ item.src }}"
+    dest: "/etc/squid/{{ item.src }}"
+    owner: "{{ item.owner }}"
+    group: proxy
+    mode: "{{ item.mode }}"
+  loop:
+    - { src: 'proxy.keytab', owner: 'proxy', mode: '0400' }
+    - { src: 'proxy_ca.crt', owner: 'root', mode: '0644' }
+    - { src: 'proxy_ca.pem', owner: 'proxy', mode: '0400' }
+  notify: restart squid
+
+- name: Проверка наличия файла size в базе SSL Bump
+  stat:
+    path: /var/lib/squid/ssl_db/size
+  register: ssl_db_status
+
+- name: Принудительное удаление поврежденной базы ssl_db
+  command: rm -rf /var/lib/squid/ssl_db
+  when: not ssl_db_status.stat.exists
+
+- name: Убедиться, что существует родительская директория
+  file:
+    path: /var/lib/squid
+    state: directory
+    owner: proxy
+    group: proxy
+
+- name: Инициализация базы сертификатов SSL Bump
+  command: /usr/lib/squid/security_file_certgen -c -s /var/lib/squid/ssl_db -M 16MB
+  when: not ssl_db_status.stat.exists
+
+- name: Установка правильных владельцев на базу сертификатов
+  file:
+    path: /var/lib/squid/ssl_db
+    state: directory
+    owner: proxy
+    group: proxy
+    recurse: yes
+
+- name: Create directory for blacklists
+  ansible.builtin.file:
+    path: /etc/squid/blacklists
+    state: directory
+    mode: '0755'
+
+- name: Download and extract Toulouse blacklists via HTTPS
+  ansible.builtin.unarchive:
+    src: https://dsi.ut-capitole.fr/blacklists/download/blacklists.tar.gz
+    dest: /etc/squid/blacklists/
+    remote_src: yes
+    extra_opts: ['--strip-components=1']
+    creates: /etc/squid/blacklists/adult/domains # <--- Секрет ускорения
+  notify: restart squid
+  # Можно добавить cron-задачу для еженедельного обновления, но пока сделаем разово.
+
+- name: Deploy custom block and nobump lists
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "/etc/squid/{{ item }}"
+    mode: '0644'
+  loop:
+    - custom_block.txt
+    - nobump.txt
+
+- name: Deploy custom Access Denied page to Langpack directories
+  ansible.builtin.copy:
+    src: denied.html
+    dest: "/usr/share/squid-langpack/{{ item }}/ERR_CUSTOM_BLOCK"
+    mode: '0644'
+  loop:
+    - ru
+    - en
+    - templates
+  notify: restart squid
+
+- name: Конфигурация Squid
+  template:
+    src: squid.conf.j2
+    dest: /etc/squid/squid.conf
+  notify: restart squid
+
+- name: Установка легковесного веб-сервера Nginx
+  apt:
+    name: nginx-light
+    state: present
+    update_cache: yes
+
+- name: Доставка файла proxy.pac в корень веб-сервера
+  copy:
+    src: proxy.pac
+    dest: /var/www/html/proxy.pac
+    owner: www-data
+    group: www-data
+    mode: '0644'
+
+- name: Добавление Nginx в автозапуск
+  service:
+    name: nginx
+    state: started
+    enabled: yes
+
+- name: Убедиться, что Keepalived запущен
+  service:
+    name: keepalived
+    state: started
+    enabled: yes

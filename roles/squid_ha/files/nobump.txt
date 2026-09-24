@@ -1,0 +1,9 @@
+.egov.kz 
+.gov.kz 
+.google.com 
+.metadoc.kz 
+.youtube.com 
+.ytimg.com 
+.googlevideo.com 
+.ggpht.com
+.speedtest.com

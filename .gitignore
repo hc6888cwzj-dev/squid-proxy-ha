@@ -1,0 +1,10 @@
+# Секреты Kerberos и сертификаты
+*.keytab
+*proxy.keytab
+*.crt
+*.pem
+
+# Временные файлы Ansible и редакторов
+*.retry
+.swp
+*~
