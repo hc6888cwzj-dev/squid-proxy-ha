@@ -2,6 +2,8 @@
 .tiktok.com
 .instagram.com
 .yaplakal.com
+.gmail.com
+.mail.ru
 
 # Блокировка конкретного вредоносного адреса, но не всего домена
 # (например, server1.hacker.com будет заблокирован, а www.hacker.com - нет)

@@ -37,6 +37,7 @@
       [Service]
       TimeoutStartSec=600
       TimeoutStopSec=600
+      LimitNOFILE=65535
     mode: '0644'
   notify: Reload systemd
 

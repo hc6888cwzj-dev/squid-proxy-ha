@@ -1,128 +1,54 @@
-# ==============================================================================
-# 1. ОПТИМИЗАЦИЯ РЕСУРСОВ (Под 8 ГБ RAM)
-# ==============================================================================
-# Выделяем 2 ГБ (четверть от всей RAM) под кэш объектов в памяти.
-# Остальная память останется для процессов SSL Bump, ОС и кэширования DNS.
+# === ГЛОБАЛЬНЫЕ ПАРАМЕТРЫ И СЕТЬ ===
+max_filedescriptors 65535
+dns_v4_first on
+
+# Обычный порт HTTP-прокси (БЕЗ инспекции HTTPS)
+http_port 8080
+
+visible_hostname {{ inventory_hostname }}
+
+# === НАСТРОЙКИ КЭШИРОВАНИЯ И ПАМЯТИ ===
 cache_mem 2048 MB
 maximum_object_size_in_memory 512 KB
+# Кэширование на диск отключено (работаем только в RAM)
+# cache_dir null /tmp 
 
-dns_nameservers 8.8.8.8 8.8.4.4
+# === НАСТРОЙКИ ЛОГИРОВАНИЯ (ЧЕЛОВЕКОЧИТАЕМЫЙ ФОРМАТ) ===
+# %tl - локальное время, %>a - IP клиента, %Ss - статус, %ru - URL
+logformat crtr_format [%tl] %>a %Ss/%03>Hs %<st %rm %ru %Sh/%<a %mt
+access_log /var/log/squid/access.log crtr_format
 
-# Не показывать версию Squid в страницах ошибок (усложняет жизнь хакерам)
-httpd_suppress_version_string on
+# === СПИСКИ КОНТРОЛЯ ДОСТУПА (ACL) ===
 
-# Объявляем наши локальные сети (RFC 1918)
-acl localnet src 10.0.0.0/8
+# РАЗРЕШЕННЫЕ ПОРТЫ 
+# (Конкретные порты для веб, ЭДО и специфичного ПО)
+acl SSL_ports port 443 444 445 403 4443 8443 9443 10443 5240 7778 7779 8100 8888 9997
+acl Safe_ports port 80 21 443 444 445 403 4443 8443 9443 10443 5240 7778 7779 8100 8888 9997
+
+# (Диапазоны для банковских клиентов с плавающими портами)
+acl SSL_ports port 8081-8091 10000-65535
+acl Safe_ports port 8081-8091 1025-65535
+
+acl CONNECT method CONNECT
+
+# ЛОКАЛЬНЫЕ СЕТИ ЦРТР
+acl localnet src 10.1.40.0/22
 acl localnet src 172.16.0.0/12
 acl localnet src 192.168.0.0/16
 
-# Теперь Squid знает, что такое localnet, и правило ниже сработает без ошибок
-acl spoofing src 0.0.0.0/8 127.0.0.0/8 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16
-http_access deny spoofing !localnet # Запрещаем левые IP, если они пришли не из локалки
+# === ПОРЯДОК ДОСТУПА (HTTP_ACCESS) ===
 
-# Блокировать подмену IP-адресов
-acl spoofing src 0.0.0.0/8 127.0.0.0/8 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16
-http_access deny spoofing !localnet # Запрещаем левые IP, если они пришли не из локалки
+# 1. Защита от использования прокси для сканирования портов
+http_access deny !Safe_ports
+http_access deny CONNECT !SSL_ports
 
-# Отключаем дисковый кэш, так как HTTPS-трафик кэшировать на диске неэффективно,
-# а лишние IOPS нагружают гипервизор.
-#cache_dir null /tmp
+# 2. Защита менеджера кэша (локальная статистика Squid)
+http_access allow localhost manager
+http_access deny manager
 
-# ==============================================================================
-# 2. АВТОРИЗАЦИЯ KERBEROS (SSO)
-# ==============================================================================
-# Указываем путь к Keytab-файлу. SPN собирается динамически из переменных Ansible.
-auth_param negotiate program /usr/lib/squid/negotiate_kerberos_auth -k /etc/squid/proxy.keytab -s HTTP/proxy01.enbek.kz@ENBEK.KZ
-auth_param negotiate children 100 startup=20 idle=10
-auth_param negotiate keep_alive on
+# 3. РАЗРЕШАЕМ ДОСТУП В ИНТЕРНЕТ ДЛЯ ВСЕХ НАШИХ СЕТЕЙ (Без Kerberos)
+http_access allow localnet
+http_access allow localhost
 
-# Требуем успешную авторизацию для любого доступа
-acl auth_users proxy_auth REQUIRED
-
-# ==============================================================================
-# 3. НАСТРОЙКИ СЕТИ И SSL BUMP (HTTPS-инспекция)
-# ==============================================================================
-# Порт 3128 для приема Explicit трафика с включенной генерацией сертификатов
-http_port 8080 ssl-bump \
-  generate-host-certificates=on \
-  dynamic_cert_mem_cache_size=16MB \
-  cert=/etc/squid/proxy_ca.crt \
-  key=/etc/squid/proxy_ca.pem
-
-sslcrtd_program /usr/lib/squid/security_file_certgen -s /var/lib/squid/ssl_db -M 16MB
-sslcrtd_children 20
-
-# ==============================================================================
-# 4. ИСКЛЮЧЕНИЯ ИЗ SSL-ДЕШИФРАЦИИ (Bypass)
-# ==============================================================================
-# На первом шаге читаем домен назначения (SNI), не подменяя сертификат
-acl step1 at_step SslBump1
-ssl_bump peek step1
-
-# Список доменов, которые НЕЛЬЗЯ расшифровывать (банки, госуслуги, мессенджеры). 
-# Расшифровка этих сайтов приведет к ошибкам (Certificate Pinning) или нарушению закона.
-acl bypass_sni ssl::server_name "/etc/squid/nobump.txt"
-
-# Пропускаем трафик из списка исключений "как есть" (без расшифровки)
-ssl_bump splice bypass_sni
-
-# Указываем Squid доверять системным сертификатам
-tls_outgoing_options cafile=/etc/ssl/certs/ca-certificates.crt capath=/etc/ssl/certs
-
-# Игнорируем строгость OpenSSL по отношению к сертификату КНБ
-acl sts_broken_cert ssl_error X509_V_ERR_SELF_SIGNED_CERT_IN_CHAIN
-sslproxy_cert_error allow sts_broken_cert
-
-# Все остальные ошибки сертификатов (например, истекший срок) - блокировать
-sslproxy_cert_error deny all
-
-# Все остальное - расшифровываем (Bump)
-ssl_bump bump all
-
-# ==============================================================================
-# 5. ПРАВИЛА ДОСТУПА (ACL)
-# ==============================================================================
-# Запрещаем доступ неавторизованным пользователям
-http_access deny !auth_users
-
-# В будущем здесь можно добавить блокировку по черным спискам доменов:
-# acl black_list dstdomain "/etc/squid/black_list.txt"
-# http_access deny black_list
-# --- БЛОКИРОВКА ПЛОХИХ САЙТОВ ---
-# Указываем пути к скачанным файлам доменов (выбираем нужные категории)
-acl bl_adult dstdomain "/etc/squid/blacklists/adult/domains"
-acl bl_malware dstdomain "/etc/squid/blacklists/malware/domains"
-acl bl_gambling dstdomain "/etc/squid/blacklists/gambling/domains"
-acl bl_games dstdomain "/etc/squid/blacklists/games/domains"
-
-# Создаем собственную кастомную блокировку (для тех сайтов, что пропустил глобальный список)
-acl custom_block dstdomain "/etc/squid/custom_block.txt"
-
-# Привязываем короткое системное имя шаблона к правилам
-deny_info ERR_CUSTOM_BLOCK custom_block
-deny_info ERR_CUSTOM_BLOCK bl_adult
-deny_info ERR_CUSTOM_BLOCK bl_malware
-deny_info ERR_CUSTOM_BLOCK bl_gambling
-
-# Запрещаем доступ
-http_access deny bl_adult
-http_access deny bl_malware
-http_access deny bl_gambling
-http_access deny custom_block
-
-# Разрешаем все остальное авторизованным сотрудникам
-http_access allow auth_users
+# 4. Блокируем любые внешние попытки использовать прокси
 http_access deny all
-
-# --- ОГРАНИЧЕНИЕ СКОРОСТИ (Delay Pools) ---
-delay_pools 1
-delay_class 1 2
-
-# Привязываем правило к вашей группе AD (или ко всем авторизованным пользователям)
-delay_access 1 allow auth_users
-delay_access 1 deny all
-
-# Параметры: [Общий пул] [Пул на одного пользователя] (в байтах/сек)
-# 12500000 = 100 Мбит/с общая полоса
-# 1250000 = 10 Мбит/с на одного клиента
-delay_parameters 1 12500000/12500000 1250000/1250000

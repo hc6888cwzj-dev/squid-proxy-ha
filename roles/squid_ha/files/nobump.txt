@@ -7,3 +7,17 @@
 .googlevideo.com 
 .ggpht.com
 .speedtest.com
+.aitu.io
+.zoom.us
+.zoom.com
+.zoomgov.com
+.chatgpt.com
+.openai.com
+.oaistatic.com
+.oaiusercontent.com
+.challenges.cloudflare.com
+.auth0.com
+.sentry.io
+.intercom.io
+.intercomcdn.com
+.bcc.kz
