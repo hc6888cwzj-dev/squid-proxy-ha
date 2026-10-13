@@ -160,3 +160,41 @@
     name: keepalived
     state: started
     enabled: yes
+
+- name: Ensure internal DNS records are present in /etc/hosts
+  ansible.builtin.blockinfile:
+    path: /etc/hosts
+    marker: "# {mark} ANSIBLE MANAGED BLOCK: INTERNAL DOMAINS"
+    block: |
+      192.168.4.7  docs.enbek.kz
+      192.168.4.14 mail.enbek.kz
+      192.168.4.14  exch.enbek.kz
+      192.168.4.18  exch3.enbek.kz
+      192.168.4.6   wsus.enbek.kz
+      192.168.4.170 mantis.enbek.gov.kz
+      192.168.4.170 mantis.enbek.kz
+      192.168.4.170 rstudio.enbek.kz
+      192.168.4.170 iac.enbek.kz
+      10.211.0.6     wsk.enbek.kz
+      10.210.0.15    davdata.enbek.kz
+      172.31.35.3  portal.enbek.kz
+      10.214.0.133  dsm.external
+      10.132.0.2 hrtest.enbek.kz
+      10.132.0.2 hrtest2.enbek.kz
+      10.132.0.2 hrtest3.enbek.kz
+      10.132.0.2 hrtestsb.enbek.kz
+      10.132.0.2 hrkibana.enbek.kz
+      10.132.0.2 hrpilot.enbek.kz
+      10.132.0.2 hr-registry.enbek.kz
+      10.132.0.2 hrgitlab.enbek.kz
+      10.132.0.2 hr-sb.enbek.kz
+      10.132.0.2 hrdevelop.enbek.kz
+      10.132.0.2 hrwiki.enbek.kz
+      10.139.0.2  erdo.enbek.kz
+      10.135.0.20 shiny.enbek.kz
+      192.168.4.74 youtrack.enbek.kz
+      10.136.0.3 fsc.enbek.kz
+      192.168.4.52 service-desk
+      192.168.4.52 service-desk.enbek.kz
+      195.12.123.146 ztna.data.gov.kz
+      10.139.0.2 ctm.enbek.kz
