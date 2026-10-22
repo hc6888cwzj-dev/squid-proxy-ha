@@ -22,18 +22,22 @@ access_log /var/log/squid/access.log crtr_format
 
 # РАЗРЕШЕННЫЕ ПОРТЫ 
 # (Конкретные порты для веб, ЭДО и специфичного ПО)
-acl SSL_ports port 443 444 445 403 4443 8443 9443 10443 5240 7778 7779 8100 8888 9997
-acl Safe_ports port 80 21 443 444 445 403 4443 8443 9443 10443 5240 7778 7779 8100 8888 9997
+acl SSL_ports port 443 444 3344 445 403 4443 5228 5229 5230 8443 9443 10443 5240 7778 7779 8100 8888 9997
+acl Safe_ports port 80 21 443 3344 444 445 403 4443 5228 5229 5230 8443 9443 10443 5240 7778 7779 8100 8888 9997
 
 # (Диапазоны для банковских клиентов с плавающими портами)
 acl SSL_ports port 8081-8091 10000-65535
 acl Safe_ports port 8081-8091 1025-65535
 
+# Fast-fail for broken state CRL server
+acl broken_crl url_regex ^http://ca\.sts\.kz/cert/.*\.crl
+
 acl CONNECT method CONNECT
 
 # ЛОКАЛЬНЫЕ СЕТИ ЦРТР
-acl localnet src 10.1.40.0/22
-acl localnet src 172.16.0.0/12
+acl localnet src 10.18.0.18/32
+#acl localnet src 10.1.40.0/22
+#acl localnet src 172.16.0.0/12
 acl localnet src 192.168.0.0/16
 
 # === ПОРЯДОК ДОСТУПА (HTTP_ACCESS) ===
@@ -45,6 +49,7 @@ http_access deny CONNECT !SSL_ports
 # 2. Защита менеджера кэша (локальная статистика Squid)
 http_access allow localhost manager
 http_access deny manager
+http_access deny broken_crl
 
 # 3. РАЗРЕШАЕМ ДОСТУП В ИНТЕРНЕТ ДЛЯ ВСЕХ НАШИХ СЕТЕЙ (Без Kerberos)
 http_access allow localnet

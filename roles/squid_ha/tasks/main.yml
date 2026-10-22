@@ -198,3 +198,44 @@
       192.168.4.52 service-desk.enbek.kz
       195.12.123.146 ztna.data.gov.kz
       10.139.0.2 ctm.enbek.kz
+
+- name: Apply MTU 1458 immediately to ens160 (MTU Black Hole fix)
+  ansible.builtin.command: "ip link set dev ens160 mtu 1458"
+  ignore_errors: yes
+  changed_when: false
+
+- name: Create systemd service for persistent MTU configuration
+  ansible.builtin.copy:
+    dest: "/etc/systemd/system/ensure-mtu.service"
+    content: |
+      [Unit]
+      Description=Ensure MTU 1458 for proxy traffic on ens160
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/sbin/ip link set dev ens160 mtu 1458
+      RemainAfterExit=yes
+
+      [Install]
+      WantedBy=multi-user.target
+
+- name: Enable ensure-mtu persistent service
+  ansible.builtin.systemd:
+    name: ensure-mtu.service
+    enabled: yes
+    daemon_reload: yes
+    state: started
+
+- name: Install prometheus-squid-exporter via APT
+  ansible.builtin.apt:
+    name: prometheus-squid-exporter
+    state: present
+    update_cache: yes
+
+- name: Ensure prometheus-squid-exporter is running and enabled
+  ansible.builtin.systemd:
+    name: prometheus-squid-exporter
+    state: started
+    enabled: yes
